@@ -8,6 +8,7 @@
   ],
   "author": "kazuma1989 <kazuma1989@quipper.com>",
   "license": "GPL-3.0-or-later",
+  "bin": "./bin.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   }
