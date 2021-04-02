@@ -1,0 +1,14 @@
+{
+  "name": "hinagata",
+  "version": "0.0.1",
+  "description": "Simple project scaffolding without a git dependency",
+  "keywords": [
+    "scaffolding",
+    "template"
+  ],
+  "author": "kazuma1989 <kazuma1989@quipper.com>",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
