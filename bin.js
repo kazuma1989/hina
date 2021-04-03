@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-// @ts-check
-/// <reference lib="es2018" />
-
 const fs = require("fs")
 const https = require("https")
+const mkdirp = require("mkdirp")
 const tar = require("tar")
 
 /**
+ * Follow 3xx redirects.
+ *
  * @param {string} url
  * @returns {Promise<import("http").IncomingMessage>}
  */
@@ -31,42 +31,107 @@ async function fetch(url) {
 }
 
 /**
- * @param {string} url
- * @param {string} dest
+ * Create Hina instance.
+ *
+ * @param {string} src
+ * @param {object} option
+ *
+ * @example
+ * const h = hina("user/repo", {})
+ *
+ * h.clone("path/to/dir").then(() => {
+ *   console.log("DONE")
+ * })
  */
-async function download(url, dest) {
-  const resp = await fetch(url)
+function hina(src, option = {}) {
+  const match = src.match(
+    /(?<user_repo>[^\/]+\/[^\/]+)(?:\/(?<sub>[^#]+))?(?:#(?<ref>.+))?/
+  )
+  if (!match) {
+    throw new Error(`Could not parse "${src}"`)
+  }
 
-  await new Promise((resolve, reject) => {
-    resp
-      .pipe(fs.createWriteStream(dest))
-      .on("finish", resolve)
-      .on("error", reject)
-  })
+  const { user_repo, sub, ref } = match.groups || {}
+
+  return {
+    /**
+     * Download a file.
+     *
+     * @param {string} file
+     */
+    async downloadTo(file) {
+      const resp = await fetch(
+        `https://github.com/${user_repo}/archive/${ref || "HEAD"}.tar.gz`
+      )
+
+      const stream = resp.pipe(fs.createWriteStream(file))
+      await new Promise((resolve, reject) => {
+        stream.on("finish", resolve).on("error", reject)
+      })
+    },
+
+    /**
+     * Extract a tarball.
+     * If dest doesn't exist, it will be created.
+     *
+     * @param {string} file
+     * @param {string=} dest
+     */
+    async extract(file, dest) {
+      if (dest) {
+        await mkdirp(dest)
+      }
+
+      await tar.extract(
+        {
+          file,
+          strip: sub ? sub.split("/").length : 1,
+          cwd: dest,
+        },
+        sub ? [sub] : []
+      )
+    },
+
+    /**
+     * @param {string=} dest
+     */
+    async clone(dest) {
+      const file = `${ref || "HEAD"}.tar.gz`
+
+      await this.downloadTo(file)
+      await this.extract(file, dest)
+    },
+  }
 }
 
 /**
- * @param {string=} subDir
+ * @example
+ * ```console
+ * npx hina user/repo               # copy into the current working directory
+ * npx hina user/repo path/to/dir   # specify a directory
+ *
+ * npx hina user/repo#dev           # branch
+ * npx hina user/repo#v1.2.3        # release tag
+ * npx hina user/repo#1234abcd      # commit hash
+ *
+ * npx hina user/repo/sub           # extract a sub directory
+ * ```
  */
-async function main(subDir) {
-  await download(
-    "https://github.com/kazuma1989/firebook/archive/HEAD.tar.gz",
-    "./HEAD.tar.gz"
-  )
+async function main() {
+  try {
+    const [src, dest] = process.argv.slice(2)
+    if (!src) {
+      throw new Error(
+        "Too few arguments. The command requires at least 1 argument"
+      )
+    }
 
-  const dest = "./"
-  await tar.extract(
-    {
-      file: "./HEAD.tar.gz",
-      strip: subDir ? subDir.split("/").length : 1,
-      cwd: dest,
-    },
-    subDir ? [subDir] : []
-  )
+    await hina(src).clone(dest)
+  } catch (err) {
+    console.error(err)
+
+    process.exit(1)
+  }
 }
 
-main().catch((e) => {
-  console.error(e)
-
-  process.exit(1)
-})
+main()
