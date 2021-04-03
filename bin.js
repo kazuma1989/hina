@@ -49,14 +49,27 @@ async function fetch(url) {
  * })
  */
 function hina(src, option = {}) {
+  // user/repo                 -> user/repo, ____, ____________
+  // user/repo/                -> user/repo, /   , ____________
+  // user/repo/src             -> user/repo, /src, ____________
+  // user/repo#some/branch     -> user/repo, ____, #some/branch
+  // user/repo/src#some/branch -> user/repo, /src, #some/branch
   const match = src.match(
-    /(?<user_repo>[^\/]+\/[^\/]+)(?:\/(?<sub>[^#]+))?(?:#(?<ref>.+))?/
+    /^(?<user_repo>[^\/]+\/[^\/#]+)(?<sub>\/[^#]*)?(?<ref>#.+)?$/
   )
   if (!match) {
     throw new Error(`Could not parse "${src}"`)
   }
 
-  const { user_repo, sub, ref } = match.groups || {}
+  let { user_repo, sub, ref } = match.groups || {}
+  // /src/foo        -> /src/foo/
+  // src///foo/bar// -> /src/foo/bar/
+  // /               -> /
+  sub = `/${sub || ""}/`.replace(/\/{2,}/g, "/")
+  if (ref) {
+    // ###some///branch/# -> some///branch/#
+    ref = ref.replace(/^#+/, "")
+  }
 
   return {
     /**
@@ -97,17 +110,43 @@ function hina(src, option = {}) {
      * @param {string=} dest
      */
     async extract(file, dest) {
+      /** @type {string} */
+      const wrapper = await new Promise((resolve, reject) => {
+        tar
+          .list({
+            file,
+            filter(path) {
+              // wrapper/             -> wrapper
+              // wrapper/package.json -> (not match)
+              // wrapper/src/index.js -> (not match)
+              const [wrapper] = path.match(/^[^\/]+(?=\/$)/) || []
+              if (wrapper) {
+                resolve(wrapper)
+              }
+
+              return false
+            },
+          })
+          // @ts-ignore
+          .then(() => {
+            reject(new Error("No wrapper matches"))
+          }, reject)
+      })
+
       if (dest) {
         await mkdirp(dest)
       }
 
+      // wrapper + /
+      // wrapper + /src/
+      const wrapperDir = `${wrapper}${sub}`
       await tar.extract(
         {
           file,
-          strip: sub ? sub.split("/").length : 1,
+          strip: wrapperDir.split("/").length - 1,
           cwd: dest,
         },
-        sub ? [sub] : []
+        [wrapperDir]
       )
     },
 
