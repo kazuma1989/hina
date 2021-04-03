@@ -42,24 +42,37 @@ module.exports = function hina(src, option = {}) {
 
   return {
     /**
-     * @param {string=} dest
+     * Clone the repo without git histories.
+     *
+     * @param {string} dest
      */
-    async clone(dest) {
-      // TODO Place a tarball in dest dir.
-      const file = `${ref || "HEAD"}.tar.gz`
+    async clone(dest = process.cwd()) {
+      await this.mkdirp(dest)
+
+      const file = path.resolve(dest, `${ref || "HEAD"}.tar.gz`)
 
       await this.downloadTo(file)
+
       await this.extract(file, dest)
 
-      this.remove(file).catch((err) => {
+      await this.remove(file).catch((err) => {
         // TODO Replace direct console to event emit.
         console.warn(err)
       })
 
-      this.doActionsAt(dest).catch((err) => {
+      await this.doActionsAt(dest).catch((err) => {
         // TODO Replace direct console to event emit.
         console.warn(err)
       })
+    },
+
+    /**
+     * mkdir -p
+     *
+     * @param {string} dir
+     */
+    async mkdirp(dir) {
+      mkdirp(dir)
     },
 
     /**
@@ -80,7 +93,6 @@ module.exports = function hina(src, option = {}) {
 
     /**
      * Extract a tarball.
-     * If dest doesn't exist, it will be created.
      *
      * @param {string} file
      * @param {string=} dest
@@ -109,10 +121,6 @@ module.exports = function hina(src, option = {}) {
           }, reject)
       })
 
-      if (dest) {
-        await mkdirp(dest)
-      }
-
       // wrapper + /
       // wrapper + /src/
       const wrapperDir = `${wrapper}${sub}`
@@ -138,10 +146,10 @@ module.exports = function hina(src, option = {}) {
     /**
      * Do actions defined in the degit.json.
      *
-     * @param {string=} dest
+     * @param {string} dest
      */
     async doActionsAt(dest = process.cwd()) {
-      const actionsPath = path.resolve(dest, "./degit.json")
+      const actionsPath = path.resolve(dest, "degit.json")
 
       const actionsContents = await fs.promises
         .readFile(actionsPath)
