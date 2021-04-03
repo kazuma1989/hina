@@ -1,6 +1,7 @@
 const fs = require("fs")
 const https = require("https")
 const mkdirp = require("mkdirp")
+const path = require("path")
 const tar = require("tar")
 
 /**
@@ -44,12 +45,19 @@ module.exports = function hina(src, option = {}) {
      * @param {string=} dest
      */
     async clone(dest) {
+      // TODO Place a tarball in dest dir.
       const file = `${ref || "HEAD"}.tar.gz`
 
       await this.downloadTo(file)
       await this.extract(file, dest)
 
-      await this.remove(file).catch((err) => {
+      this.remove(file).catch((err) => {
+        // TODO Replace direct console to event emit.
+        console.warn(err)
+      })
+
+      this.doActionsAt(dest).catch((err) => {
+        // TODO Replace direct console to event emit.
         console.warn(err)
       })
     },
@@ -125,6 +133,86 @@ module.exports = function hina(src, option = {}) {
      */
     async remove(file) {
       await fs.promises.unlink(file)
+    },
+
+    /**
+     * Do actions defined in the degit.json.
+     *
+     * @param {string=} dest
+     */
+    async doActionsAt(dest = process.cwd()) {
+      const actionsPath = path.resolve(dest, "./degit.json")
+
+      const actionsContents = await fs.promises
+        .readFile(actionsPath)
+        .catch(() => null)
+      if (!actionsContents) return
+
+      /** @type {unknown} */
+      const rawData = JSON.parse(actionsContents.toString())
+
+      if (!Array.isArray(rawData)) return
+
+      await fs.promises.unlink(actionsPath)
+
+      /**
+       * @typedef {{
+       *  action: "clone"
+       *  src: string
+       * } | {
+       *  action: "remove"
+       *  files: string[]
+       * }} Action
+       * @type {Action[]}
+       */
+      const actions = rawData.filter((action) => {
+        if (!action) {
+          return false
+        }
+
+        switch (action.action) {
+          case "clone": {
+            const { src } = action
+
+            return typeof src === "string"
+          }
+
+          case "remove": {
+            const { files } = action
+
+            return (
+              Array.isArray(files) && files.every((v) => typeof v === "string")
+            )
+          }
+
+          default: {
+            return false
+          }
+        }
+      })
+
+      await Promise.all(
+        actions.map((action) => {
+          switch (action.action) {
+            case "clone": {
+              // Do nothing.
+              return
+            }
+
+            case "remove": {
+              const { files } = action
+
+              return Promise.all(
+                files.map((file) => this.remove(path.resolve(dest, file)))
+              )
+            }
+
+            default: {
+              return
+            }
+          }
+        })
+      )
     },
   }
 }
