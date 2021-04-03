@@ -17,14 +17,19 @@ async function fetch(url) {
     https.get(url, resolve).on("error", reject)
   })
 
-  const { statusCode, statusMessage, headers } = resp
+  const { statusCode = 500, statusMessage = "", headers } = resp
 
   if (statusCode >= 500 || statusCode >= 400) {
     throw new Error(`${statusCode} ${statusMessage}`)
   }
 
   if (statusCode >= 300) {
-    return await fetch(headers.location)
+    const { location } = headers
+    if (!location) {
+      throw new Error(`No location header. ${statusCode} ${statusMessage}`)
+    }
+
+    return await fetch(location)
   }
 
   return resp
@@ -54,6 +59,20 @@ function hina(src, option = {}) {
   const { user_repo, sub, ref } = match.groups || {}
 
   return {
+    /**
+     * @param {string=} dest
+     */
+    async clone(dest) {
+      const file = `${ref || "HEAD"}.tar.gz`
+
+      await this.downloadTo(file)
+      await this.extract(file, dest)
+
+      await this.remove(file).catch((err) => {
+        console.warn(err)
+      })
+    },
+
     /**
      * Download a file.
      *
@@ -93,13 +112,12 @@ function hina(src, option = {}) {
     },
 
     /**
-     * @param {string=} dest
+     * Remove the file.
+     *
+     * @param {string} file
      */
-    async clone(dest) {
-      const file = `${ref || "HEAD"}.tar.gz`
-
-      await this.downloadTo(file)
-      await this.extract(file, dest)
+    async remove(file) {
+      await fs.promises.unlink(file)
     },
   }
 }
