@@ -1,3 +1,4 @@
 .vscode/
 .node-version
 .prettierrc.json
+jsconfig.json

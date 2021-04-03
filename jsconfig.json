@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    // Target Node.js v10.
+    "target": "es2018",
+    "lib": ["es2018"],
+    "moduleResolution": "node",
+    "module": "commonJS",
+
+    // Follow the recommended comment for the option.
+    "skipLibCheck": true,
+
+    // Case sensitive.
+    "forceConsistentCasingInFileNames": true,
+
+    // Tell me if the value or prop may be null or undefined.
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
+
+    // Check JS files on VS Code.
+    "checkJs": true
+  },
+
+  "exclude": ["node_modules", "**/node_modules/*"]
+}
