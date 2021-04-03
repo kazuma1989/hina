@@ -15,7 +15,7 @@ const hina = require("./index")
  * npx hina user/repo/sub           # extract a sub directory
  * ```
  */
-async function main() {
+async function run() {
   try {
     const [src, dest] = process.argv.slice(2)
     if (!src) {
@@ -32,4 +32,4 @@ async function main() {
   }
 }
 
-main()
+run()
