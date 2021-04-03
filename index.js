@@ -1,3 +1,4 @@
+const EventEmitter = require("events")
 const fs = require("fs")
 const https = require("https")
 const mkdirp = require("mkdirp")
@@ -18,210 +19,226 @@ const tar = require("tar")
  * })
  */
 module.exports = function hina(src, option = {}) {
-  // user/repo                 -> user/repo, ____, ____________
-  // user/repo/                -> user/repo, /   , ____________
-  // user/repo/src             -> user/repo, /src, ____________
-  // user/repo#some/branch     -> user/repo, ____, #some/branch
-  // user/repo/src#some/branch -> user/repo, /src, #some/branch
-  const match = src.match(
-    /^(?<user_repo>[^\/]+\/[^\/#]+)(?<sub>\/[^#]*)?(?<ref>#.+)?$/
-  )
-  if (!match) {
-    throw new Error(`Could not parse "${src}"`)
+  return new Hina(src, option)
+}
+
+class Hina extends EventEmitter {
+  /**
+   * Construct Hina instance.
+   *
+   * @param {string} src
+   * @param {object} option
+   */
+  constructor(src, option) {
+    super()
+
+    // user/repo                 -> user/repo, ____, ____________
+    // user/repo/                -> user/repo, /   , ____________
+    // user/repo/src             -> user/repo, /src, ____________
+    // user/repo#some/branch     -> user/repo, ____, #some/branch
+    // user/repo/src#some/branch -> user/repo, /src, #some/branch
+    const match = src.match(
+      /^(?<userRepo>[^\/]+\/[^\/#]+)(?<sub>\/[^#]*)?(?<ref>#.+)?$/
+    )
+    if (!match) {
+      throw new Error(`Could not parse "${src}"`)
+    }
+
+    let { userRepo, sub, ref } = match.groups || {}
+    // /src/foo        -> /src/foo/
+    // src///foo/bar// -> /src/foo/bar/
+    // /               -> /
+    sub = `/${sub || ""}/`.replace(/\/{2,}/g, "/")
+    if (ref) {
+      // ###some///branch/# -> some///branch/#
+      ref = ref.replace(/^#+/, "")
+    }
+
+    this.userRepo = userRepo
+    this.sub = sub
+    this.ref = ref
   }
 
-  let { user_repo, sub, ref } = match.groups || {}
-  // /src/foo        -> /src/foo/
-  // src///foo/bar// -> /src/foo/bar/
-  // /               -> /
-  sub = `/${sub || ""}/`.replace(/\/{2,}/g, "/")
-  if (ref) {
-    // ###some///branch/# -> some///branch/#
-    ref = ref.replace(/^#+/, "")
+  /**
+   * Clone the repo without git histories.
+   *
+   * @param {string} dest
+   */
+  async clone(dest = process.cwd()) {
+    await this.mkdirp(dest)
+
+    const file = path.resolve(dest, `${this.ref || "HEAD"}.tar.gz`)
+
+    await this.downloadTo(file)
+
+    await this.extract(file, dest)
+
+    await this.remove(file).catch((err) => {
+      // TODO Replace direct console to event emit.
+      console.warn(err)
+    })
+
+    await this.doActionsAt(dest).catch((err) => {
+      // TODO Replace direct console to event emit.
+      console.warn(err)
+    })
   }
 
-  return {
-    /**
-     * Clone the repo without git histories.
-     *
-     * @param {string} dest
-     */
-    async clone(dest = process.cwd()) {
-      await this.mkdirp(dest)
+  /**
+   * mkdir -p
+   *
+   * @param {string} dir
+   */
+  async mkdirp(dir) {
+    mkdirp(dir)
+  }
 
-      const file = path.resolve(dest, `${ref || "HEAD"}.tar.gz`)
+  /**
+   * Download a file.
+   *
+   * @param {string} file
+   */
+  async downloadTo(file) {
+    const resp = await fetch(
+      `https://github.com/${this.userRepo}/archive/${this.ref || "HEAD"}.tar.gz`
+    )
 
-      await this.downloadTo(file)
+    const stream = resp.pipe(fs.createWriteStream(file))
+    await new Promise((resolve, reject) => {
+      stream.on("finish", resolve).on("error", reject)
+    })
+  }
 
-      await this.extract(file, dest)
-
-      await this.remove(file).catch((err) => {
-        // TODO Replace direct console to event emit.
-        console.warn(err)
-      })
-
-      await this.doActionsAt(dest).catch((err) => {
-        // TODO Replace direct console to event emit.
-        console.warn(err)
-      })
-    },
-
-    /**
-     * mkdir -p
-     *
-     * @param {string} dir
-     */
-    async mkdirp(dir) {
-      mkdirp(dir)
-    },
-
-    /**
-     * Download a file.
-     *
-     * @param {string} file
-     */
-    async downloadTo(file) {
-      const resp = await fetch(
-        `https://github.com/${user_repo}/archive/${ref || "HEAD"}.tar.gz`
-      )
-
-      const stream = resp.pipe(fs.createWriteStream(file))
-      await new Promise((resolve, reject) => {
-        stream.on("finish", resolve).on("error", reject)
-      })
-    },
-
-    /**
-     * Extract a tarball.
-     *
-     * @param {string} file
-     * @param {string=} dest
-     */
-    async extract(file, dest) {
-      /** @type {string} */
-      const wrapper = await new Promise((resolve, reject) => {
-        tar
-          .list({
-            file,
-            filter(path) {
-              // wrapper/             -> wrapper
-              // wrapper/package.json -> (not match)
-              // wrapper/src/index.js -> (not match)
-              const [wrapper] = path.match(/^[^\/]+(?=\/$)/) || []
-              if (wrapper) {
-                resolve(wrapper)
-              }
-
-              return false
-            },
-          })
-          // @ts-ignore
-          .then(() => {
-            reject(new Error("No wrapper matches"))
-          }, reject)
-      })
-
-      // wrapper + /
-      // wrapper + /src/
-      const wrapperDir = `${wrapper}${sub}`
-      await tar.extract(
-        {
+  /**
+   * Extract a tarball.
+   *
+   * @param {string} file
+   * @param {string=} dest
+   */
+  async extract(file, dest) {
+    /** @type {string} */
+    const wrapper = await new Promise((resolve, reject) => {
+      tar
+        .list({
           file,
-          strip: wrapperDir.split("/").length - 1,
-          cwd: dest,
-        },
-        [wrapperDir]
-      )
-    },
+          filter(path) {
+            // wrapper/             -> wrapper
+            // wrapper/package.json -> (not match)
+            // wrapper/src/index.js -> (not match)
+            const [wrapper] = path.match(/^[^\/]+(?=\/$)/) || []
+            if (wrapper) {
+              resolve(wrapper)
+            }
+
+            return false
+          },
+        })
+        // @ts-ignore
+        .then(() => {
+          reject(new Error("No wrapper matches"))
+        }, reject)
+    })
+
+    // wrapper + /
+    // wrapper + /src/
+    const wrapperDir = `${wrapper}${this.sub}`
+    await tar.extract(
+      {
+        file,
+        strip: wrapperDir.split("/").length - 1,
+        cwd: dest,
+      },
+      [wrapperDir]
+    )
+  }
+
+  /**
+   * Remove the file.
+   *
+   * @param {string} file
+   */
+  async remove(file) {
+    await fs.promises.unlink(file)
+  }
+
+  /**
+   * Do actions defined in the degit.json.
+   *
+   * @param {string} dest
+   */
+  async doActionsAt(dest = process.cwd()) {
+    const actionsPath = path.resolve(dest, "degit.json")
+
+    const actionsContents = await fs.promises
+      .readFile(actionsPath)
+      .catch(() => null)
+    if (!actionsContents) return
+
+    /** @type {unknown} */
+    const rawData = JSON.parse(actionsContents.toString())
+
+    if (!Array.isArray(rawData)) return
+
+    await fs.promises.unlink(actionsPath)
 
     /**
-     * Remove the file.
-     *
-     * @param {string} file
+     * @typedef {{
+     *  action: "clone"
+     *  src: string
+     * } | {
+     *  action: "remove"
+     *  files: string[]
+     * }} Action
+     * @type {Action[]}
      */
-    async remove(file) {
-      await fs.promises.unlink(file)
-    },
+    const actions = rawData.filter((action) => {
+      if (!action) {
+        return false
+      }
 
-    /**
-     * Do actions defined in the degit.json.
-     *
-     * @param {string} dest
-     */
-    async doActionsAt(dest = process.cwd()) {
-      const actionsPath = path.resolve(dest, "degit.json")
+      switch (action.action) {
+        case "clone": {
+          const { src } = action
 
-      const actionsContents = await fs.promises
-        .readFile(actionsPath)
-        .catch(() => null)
-      if (!actionsContents) return
-
-      /** @type {unknown} */
-      const rawData = JSON.parse(actionsContents.toString())
-
-      if (!Array.isArray(rawData)) return
-
-      await fs.promises.unlink(actionsPath)
-
-      /**
-       * @typedef {{
-       *  action: "clone"
-       *  src: string
-       * } | {
-       *  action: "remove"
-       *  files: string[]
-       * }} Action
-       * @type {Action[]}
-       */
-      const actions = rawData.filter((action) => {
-        if (!action) {
-          return false
+          return typeof src === "string"
         }
 
+        case "remove": {
+          const { files } = action
+
+          return (
+            Array.isArray(files) && files.every((v) => typeof v === "string")
+          )
+        }
+
+        default: {
+          return false
+        }
+      }
+    })
+
+    await Promise.all(
+      actions.map((action) => {
         switch (action.action) {
           case "clone": {
-            const { src } = action
-
-            return typeof src === "string"
+            // Do nothing.
+            return
           }
 
           case "remove": {
             const { files } = action
 
-            return (
-              Array.isArray(files) && files.every((v) => typeof v === "string")
+            return Promise.all(
+              files.map((file) => fs.promises.unlink(path.resolve(dest, file)))
             )
           }
 
           default: {
-            return false
+            return
           }
         }
       })
-
-      await Promise.all(
-        actions.map((action) => {
-          switch (action.action) {
-            case "clone": {
-              // Do nothing.
-              return
-            }
-
-            case "remove": {
-              const { files } = action
-
-              return Promise.all(
-                files.map((file) => this.remove(path.resolve(dest, file)))
-              )
-            }
-
-            default: {
-              return
-            }
-          }
-        })
-      )
-    },
+    )
   }
 }
 
