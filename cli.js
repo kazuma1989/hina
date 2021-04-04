@@ -24,7 +24,17 @@ async function run() {
       )
     }
 
-    await hina(src).clone(dest)
+    const h = hina(src)
+
+    h.on("info", (e) => {
+      console.error("info:", e)
+    })
+
+    h.on("warn", (e) => {
+      console.error("warn:", e)
+    })
+
+    await h.clone(dest)
   } catch (err) {
     console.error(err)
 

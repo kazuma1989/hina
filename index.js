@@ -22,6 +22,10 @@ module.exports = function hina(src, option = {}) {
   return new Hina(src, option)
 }
 
+/**
+ * Hina class.
+ * Emits "info" and "warn" events.
+ */
 class Hina extends EventEmitter {
   /**
    * Construct Hina instance.
@@ -74,13 +78,11 @@ class Hina extends EventEmitter {
     await this.extract(file, dest)
 
     await this.remove(file).catch((err) => {
-      // TODO Replace direct console to event emit.
-      console.warn(err)
+      this.emit("warn", err)
     })
 
     await this.doActionsAt(dest).catch((err) => {
-      // TODO Replace direct console to event emit.
-      console.warn(err)
+      this.emit("warn", err)
     })
   }
 
@@ -153,7 +155,7 @@ class Hina extends EventEmitter {
   }
 
   /**
-   * Remove the file.
+   * Remove a file.
    *
    * @param {string} file
    */
@@ -176,7 +178,6 @@ class Hina extends EventEmitter {
 
     /** @type {unknown} */
     const rawData = JSON.parse(actionsContents.toString())
-
     if (!Array.isArray(rawData)) return
 
     await fs.promises.unlink(actionsPath)
@@ -229,7 +230,11 @@ class Hina extends EventEmitter {
             const { files } = action
 
             return Promise.all(
-              files.map((file) => fs.promises.unlink(path.resolve(dest, file)))
+              files.map((file) =>
+                fs.promises.unlink(path.resolve(dest, file)).catch((err) => {
+                  this.emit("warn", err)
+                })
+              )
             )
           }
 
