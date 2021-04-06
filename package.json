@@ -24,6 +24,10 @@
     "mkdirp": "^1.0.4",
     "tar": "^6.1.0"
   },
+  "bundledDependencies": [
+    "mkdirp",
+    "tar"
+  ],
   "devDependencies": {
     "@types/mkdirp": "^1.0.1",
     "@types/node": "10.x.x",
